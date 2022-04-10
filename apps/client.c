@@ -110,7 +110,7 @@ int main(int argc, char *argv[])
 	
 	printf("sock creation successful\n");
 
-	/*set the congestion control algorithm to xyz */
+	/*set congestion control */
 	if (setsockopt(sd, SOL_TCP, TCP_CONGESTION, opts.cc, strlen(opts.cc)) == -1) {
 		end("setsockopt");
 	}
