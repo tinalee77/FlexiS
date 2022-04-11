@@ -1,3 +1,5 @@
+/* This code is adapted from https://github.com/silviov/TCP-LEDBAT/edit/master/util/client.c */
+
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
