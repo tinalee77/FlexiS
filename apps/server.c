@@ -1,4 +1,4 @@
-/* Server code in C */
+/* This code is adapted from the following source: https://github.com/silviov/TCP-LEDBAT/blob/master/util/server.c */
 
 #include <sys/types.h>
 #include <sys/socket.h>
