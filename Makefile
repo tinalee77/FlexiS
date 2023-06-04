@@ -7,7 +7,7 @@ default:
 
 install:
 	install -v -m 644 tcp_flexis.ko $(IDIR)
-	#depmod
+	depmod
 	modprobe tcp_flexis
 	
 uninstall:
