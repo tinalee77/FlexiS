@@ -1,8 +1,0 @@
-This is the source code of TCP FlexiS. It is largely the same code that was used to produce the results presented in the paper.
-
-It compiles on Linux kernel 5.13.0-39
-
-How to use
-
-    make
-    sudo make install
