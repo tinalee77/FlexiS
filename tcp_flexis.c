@@ -804,7 +804,7 @@ static void tcp_flexis_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 
 	// making congestion decision
 	if (reasoning && dur >= tau) { 
-		if (flexis->slopes.cnt < sigma) {
+		if (flexis->rtt_sack.cnt < sigma) {
 			goto inc;
 		}
 		rst = slopes_median(sk, 1, flexis->slopes.cnt, &theil_slope);
