@@ -2,7 +2,7 @@
 
 This is the source code of TCP FlexiS. It was used to produce the results presented in [1].
 
-It compiles on Linux kernels v4.15 -- v5.19
+It compiles on Linux kernels v5.4.0 -- v5.19.0
 
 How to use
 
