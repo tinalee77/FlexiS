@@ -8,4 +8,3 @@ How to use
 
     make
     sudo make install
-
