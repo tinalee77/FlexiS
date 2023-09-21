@@ -14,22 +14,22 @@
 #include <linux/list.h>
 #include <linux/time64.h>
 
-// the minimum number of slopes needed for trend analysis
+// the minimum number of data points needed to make a trend estimate
 static int sigma __read_mostly = 3;
 module_param(sigma, int, 0644);
-// the first increase factor
+// the increase factor alpha
 static int alpha __read_mostly = 100;
 module_param(alpha, int, 0644);
-// the second increase factor
+// the increase factor beta
 static int beta __read_mostly = 10;
 module_param(beta, int, 0644);
 // the decrease factor magnified by 100 times
 static int gamma __read_mostly = 85;
 module_param(gamma, int, 0644);
-// the minimum duration in ms required for trend analysis
+// the minimum duration required to make a trend estimate, in ms
 static int tau __read_mostly = 60;
 module_param(tau, int, 0644);
-// the threshold for the slope (magnified 1000 times) of the fit line
+// the slope threshold for congestion
 static int theta __read_mostly = 30;
 module_param(theta, int, 0644);
 
@@ -38,12 +38,12 @@ module_param(theta, int, 0644);
 #define MIN_CWND 2U
 
 /*
- * returning the median of values between start and end. the values should be sorted
+ * returning the median of sorted values within the range of [start, end]
  * @head: pointing to the head of a list of values
- * @start: the index of the first valid list entry 
- * @end: the index of the last valid list entry 
- * @type: the type of list entries
- * @member: the name of the member of a list entry
+ * @start: the index of the first value 
+ * @end: the index of the last value 
+ * @type: the type of the value
+ * @member: the name of the value
  */
 #define median(head, start, end, type, member) ({ \
 		struct list_head *ptr, *head__ = (head); \
@@ -67,8 +67,8 @@ module_param(theta, int, 0644);
 		res; \
 })
 /*
- * adding a new entry to a list sorted in ascending order
- * @head: head of the list
+ * adding a new entry to a list and keeping the list in ascending order
+ * @head: the head of the list
  * @node: pointing to the entry to be added to the list
  * @member: the name of the member used as sorting key
  */
@@ -89,7 +89,7 @@ module_param(theta, int, 0644);
 		list_add_tail(&node__->links, head__); \
 })
 
-// return code definition 
+// return codes 
 enum ret {
 	SUCCESS,
 	NULL_PTR,
@@ -100,7 +100,7 @@ enum ret {
 	NO_MEM
 };
 
-// the rtt sample struct
+// the struct for RTT samples
 struct rnode {
 	u32 rtt_us;
 	struct list_head links;
@@ -108,39 +108,39 @@ struct rnode {
 /*
  * used for rtt sample compression
  * @head: the head of a list of rnodes that have the same snd_time_ms
- * @snd_time_ms: the sending time of the data packet that is used to estimate the rtt
- * @cnt: the number of rtt samples in the list
+ * @snd_time_ms: the sending time of a segment that is used to estimate RTT
+ * @cnt: the number of RTT samples in the list
  */ 
 struct rtt_bin {
 	struct list_head head; 
 	u64 snd_time_ms; 
 	u32 cnt;
 };
-// the slope struct
+// the struct for slopes
 struct snode {
 	s32 slope;
 	struct list_head links;    
 };
 /* 
  * a list that stores the slopes of lines connecting pairs of points in the rtt_sack. sorted in ascending order
- * @head: pointing to the head of a list of snodes
+ * @head: pointing to the head of slopes
  * @cnt: the number of slopes in the list
  */
 struct slopes {
 	struct list_head head;
 	u32 cnt;
 };
-// a struct that stores a pointer pointing to an snode in slopes
+// a struct that stores a pointer which points to an snode in "slopes"
 struct fnode {
 	struct snode *ptr;
 	struct list_head links;
 };
 /*
- * struct that stores a data point in the rtt_sack
- * @snd_time_ms: the sending time of the data packets
- * @rtt_us: the median rtt measured by all data packets that are sent at "snd_time_ms"
- * @fanout_head: the head of a list of fnodes, each of which points to an entry in slopes 
- * these pointers are used to quickly remove snodes from slopes when a pnode is removed from rtt_sack
+ * struct for data points in rtt_sack
+ * @snd_time_ms: the sending time of segments, in ms
+ * @rtt_us: the median RTT measured by all segments that are sent at "snd_time_ms", in us
+ * @fanout_head: the head of a list of fnodes, each of which points to an entry in "slopes" 
+ * these pointers are used to quickly remove "snode"s from "slopes" when a "pnode" is removed from rtt_sack
  */ 
 struct pnode {
 	u64 snd_time_ms; 
@@ -159,15 +159,14 @@ struct rtt_sack {
 };
 /*
  * the rest of variables of the flexis struct
- * @t0: start time of an increase epoch
- * @r0: the initial rate at the start of an increase epoch
+ * @t0: the start time of an increase epoch
+ * @r0: the initial rate at t0
  * @t_ulmt: the time when flexis enters cwnd unlimited state
- * @snd_nxt: a copy of tcp's snd_nxt before cwnd is decreased. no trend analysis is done before snd_nxt is acknowledged. 
- * it is used to prevent multiple cwnd reduction within one window. 
- * it also makes sure that the first trend analysis after cwnd reduction is based on the new cwnd.
+ * @snd_nxt: a copy of TCP's snd_nxt right before cwnd is decreased. 
+ * pending is entered when the segment with the seqno equaling snd_nxt is acknowledged. 
  * @undo_cwnd: used by tcp to undo its wrong cwnd reduction
  * @rtt_us: the latest rtt sample in us
- * @epoch_min_rtt: the minimum rtt observed in the pending phase and the following increase phase
+ * @epoch_min_rtt: the minimum RTT observed in the pending phase and the following increase phase
  */ 
 struct vars {
 	u64 t0; 
@@ -179,11 +178,10 @@ struct vars {
 	u32 epoch_min_rtt; 
 };
 /*
- * The flexis struct
- * @rtt_bin: storing rtt samples with the same sending time in ascending order
- * @rtt_sack: the rtt sack
+ * The flexis struct 
+ * @rtt_bin: storing RTT samples that have the same sending time, sorted in ascending order
+ * @rtt_sack: storing data points (ti, di)
  * @slopes: storing slopes (magnified 1000 times) of lines connecting pairs of points in rtt_sack
- * the rest of variables are placed in vars due to size limitation
  */
 struct flexis {
 	struct rtt_bin rtt_bin;
@@ -223,7 +221,7 @@ static int rtt_bin_add_asd(struct sock *sk, u64 snd_time_ms, u32 rtt_us)
 	return SUCCESS;
 }
 
-// finding the median of rtt samples stored in rtt_bin
+// finding the median of RTT samples stored in rtt_bin
 static int rtt_bin_median(struct sock *sk, u32 *mrtt_us) 
 {
 	struct flexis *flexis = inet_csk_ca(sk);
@@ -261,7 +259,7 @@ static void rtt_bin_reset(struct sock *sk)
 
 ///////////// slope operations ////////////
 
-// adding a new slope into slopes and preserving the ascending order
+// adding a new slope into "slopes" and preserving ascending order
 static struct snode *slopes_add_asd(struct sock *sk, struct slopes *slopes, s32 slope)
 {
 	struct snode *snode;
@@ -285,7 +283,7 @@ static struct snode *slopes_add_asd(struct sock *sk, struct slopes *slopes, s32 
 	return snode;
 }
 
-// adding a list of sorted slopes to slopes and preserving ascending order
+// adding a list of sorted slopes to "slopes" and preserving ascending order
 static int slopes_add_asd_mul(struct sock *sk, struct slopes *new_slopes)
 {
 	struct flexis *flexis = inet_csk_ca(sk);
@@ -321,7 +319,7 @@ static int slopes_add_asd_mul(struct sock *sk, struct slopes *new_slopes)
 	return SUCCESS;
 }
 
-// adding a new node to the end of the fanout queue of a pnode
+// adding a new node to the end of the fanout queue
 static int fanout_enq(struct sock *sk, struct list_head *fanout_head, struct snode *snode)
 {
 	struct fnode *fnode;
@@ -380,7 +378,7 @@ static int slopes_gen(struct sock *sk, struct pnode *stop_pnode)
 	return slopes_add_asd_mul(sk, &new_slopes);
 }
 
-// returning the median of slopes
+// returning the median of "slopes"
 static int slopes_median(struct sock *sk, u32 start, u32 end, s32 *mslope) 
 {
 	struct flexis *flexis = inet_csk_ca(sk);
@@ -447,7 +445,7 @@ static int fout_reset(struct sock *sk, struct list_head *fanout_head)
 	return SUCCESS;
 }
 
-// resetting slopes
+// resetting "slopes"
 static void slopes_reset(struct sock *sk)
 {
 	struct flexis *flexis = inet_csk_ca(sk);
@@ -466,7 +464,7 @@ static void slopes_reset(struct sock *sk)
 
 ///////// rtt_sack operations //////////////
 
-// adding a new pnode to rtt_sack
+// adding a new point to rtt_sack
 static struct pnode * rtt_sack_enq(struct sock *sk, u64 snd_time_ms, u32 rtt_us)
 {
 	struct flexis *flexis = inet_csk_ca(sk);
@@ -492,7 +490,7 @@ static struct pnode * rtt_sack_enq(struct sock *sk, u64 snd_time_ms, u32 rtt_us)
 	return new_node;
 }
 
-// removing the oldest pnode from rtt_sack
+// removing the oldest point from rtt_sack
 static void rtt_sack_deq(struct sock *sk)
 {
 	struct flexis *flexis = inet_csk_ca(sk);
@@ -511,7 +509,7 @@ static void rtt_sack_deq(struct sock *sk)
 	}
 }
 
-// resetting the rtt_sack
+// resetting rtt_sack
 static void rtt_sack_reset(struct sock *sk)
 {
 	struct flexis *flexis = inet_csk_ca(sk);
@@ -584,7 +582,7 @@ static void increase_cwnd(struct sock *sk)
 		return;
 	}
 	
-	// right shift t0 after cwnd unlimited period to resume rate increase smoothly
+	// right shift t0 when the rate becomes limited by cwnd again to avoid large rate increase
 	if (flexis->vars->t_ulmt) {
 		dur = tp->tcp_mstamp - flexis->vars->t_ulmt;
 		if (dur > 0) {
@@ -599,7 +597,7 @@ static void increase_cwnd(struct sock *sk)
 		return;
 	}
 	
-	// r1 is the current rate, its unit is packets per second
+	// r1 is the current rate, in packets per second
 	r1 = int_pow(t1 / USEC_PER_MSEC / alpha, 3) + t1 / USEC_PER_MSEC / beta  + flexis->vars->r0;
 	if (!r1)
 		return;
@@ -612,15 +610,15 @@ static void increase_cwnd(struct sock *sk)
 	
 	flexis->vars->undo_cwnd = tp->snd_cwnd;
 	
-	// t2 is the elapsed time in one rtt 
+	// t2 is the elapsed time in one RTT 
 	if (flexis->vars->epoch_min_rtt) {
 		t2 = t1 + flexis->vars->epoch_min_rtt;
 	} else {
 		t2 = t1 + srtt;
 	}
-	// r2 is the rate in one rtt
+	// r2 is the rate in one RTT
 	r2 = int_pow(t2 / USEC_PER_MSEC / alpha, 3) + t2 / USEC_PER_MSEC / beta + flexis->vars->r0;
-	// calculating pacing ratio pr
+	// calculating pacing ratio 
 	pr = div64_u64_rem(r2 * 100, r1, &rem);
 	if (rem)
 		pr++;
@@ -719,7 +717,7 @@ static void tcp_flexis_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 		break;
 	case CA_EVENT_COMPLETE_CWR: 
 		if (flexis->vars->snd_nxt) { 
-			// TCP reduced cwnd while flexis was reducing it. We undo cwnd to the value before the second cwnd reduction
+			// TCP reduced cwnd while flexis was reducing it. We undo the second cwnd reduction
 			tp->snd_cwnd = flexis->vars->undo_cwnd;
 		}
 		break;
@@ -766,10 +764,9 @@ static void tcp_flexis_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 
 	if (flexis->vars->snd_nxt) {
 		if (ack <= flexis->vars->snd_nxt) { 
-			// ignoring rtt samples measured by packets sent before cwnd reduction
 			return;
 		} else { 
-			// the first rtt sample measured by the first packet sent after cwnd reduction has arrived
+			// the rtt sample measured by the first packet sent after cwnd reduction has arrived
 			reinit_after_dec(sk);
 		}
 	}
@@ -819,7 +816,7 @@ static void tcp_flexis_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		if (!flexis->vars->t0) {
 			init_inc_epoch(sk);
 		}
-		// removing the oldest pnode from rtt_sack
+		// removing the oldest point from rtt_sack
 		rtt_sack_deq(sk);
 	}
 
